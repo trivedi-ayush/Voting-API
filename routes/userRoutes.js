@@ -6,7 +6,7 @@ const { jwtAuthMiddleware, generateToken } = require("./../jwt");
 // POST route to add a person
 router.post("/signup", async (req, res) => {
   try {
-    const data = req.body; // Assuming the request body contains the User data
+    const data = req.body;
     console.log(data);
     // Check if there is already an admin user
     const adminUser = await User.findOne({ role: "admin" });
@@ -39,13 +39,9 @@ router.post("/signup", async (req, res) => {
     const response = await newUser.save();
     console.log("data saved");
 
-    const payload = {
-      id: response.id,
-    };
-    console.log(JSON.stringify(payload));
-    const token = generateToken(payload);
-
-    res.status(200).json({ response: response, token: token });
+    res
+      .status(200)
+      .json({ msg: "User Registered Successfully", response: response });
   } catch (err) {
     console.log(err);
     res.status(500).json({ error: "Internal Server Error" });
@@ -82,7 +78,7 @@ router.post("/login", async (req, res) => {
     const token = generateToken(payload);
 
     // resturn token as response
-    res.json({ token });
+    res.json({ msg: "Login Successful", token });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Internal Server Error" });
@@ -128,7 +124,6 @@ router.put("/update-password", jwtAuthMiddleware, async (req, res) => {
     user.password = newPassword;
     await user.save();
 
-    console.log("password updated");
     res.status(200).json({ message: "Password updated" });
   } catch (err) {
     console.error(err);

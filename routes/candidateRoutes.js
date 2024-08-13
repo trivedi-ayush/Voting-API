@@ -29,8 +29,9 @@ router.post("/", jwtAuthMiddleware, async (req, res) => {
 
     // Save the new user to the database
     const response = await newCandidate.save();
-    console.log("data saved");
-    res.status(200).json({ response: response });
+    res
+      .status(200)
+      .json({ msg: "New Candidate Created Successfully", response: response });
   } catch (err) {
     console.log(err);
     res.status(500).json({ error: "Internal Server Error" });
@@ -92,9 +93,7 @@ router.delete(
       if (!response) {
         return res.status(404).json({ error: "Candidate not found" });
       }
-
-      console.log("candidate deleted");
-      res.status(200).json(response);
+      res.status(200).json({ msg: "Candidate deleted", response });
     } catch (err) {
       console.log(err);
       res.status(500).json({ error: "Internal Server Error" });
