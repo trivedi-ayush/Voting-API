@@ -28,4 +28,4 @@ const resetPasswordLimiter = rateLimit({
   },
 });
 
-export default resetPasswordLimiter;
+module.exports = resetPasswordLimiter;

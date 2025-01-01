@@ -5,6 +5,7 @@ const app = express();
 const connectDb = require("./config/db.js");
 const cookieParser = require("cookie-parser");
 const bodyParser = require("body-parser");
+const multer = require("multer");
 
 app.use(bodyParser.json());
 app.use(cookieParser());

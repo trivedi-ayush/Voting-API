@@ -10,6 +10,8 @@ const transporter = require("../config/nodemailer.js");
 const crypto = require("crypto");
 const PasswordReset = require("../models/passwordResetSchema.js");
 const bcrypt = require("bcrypt");
+const validatePassword = require("../utils/validatePassword.js");
+const clearAuthCookie = require("../utils/clearAuthCookie");
 
 const register = async (req, res) => {
   try {
@@ -42,6 +44,11 @@ const register = async (req, res) => {
     if (existingAdmin && data.role == "admin") {
       console.log("existingAdmin", existingAdmin);
       return res.status(400).json(new ApiError(400, "Admin already exists"));
+    }
+
+    // Add profile picture URL
+    if (req.file) {
+      data.profilePictureUrl = req.file.location;
     }
 
     const newUser = new User(data);
@@ -90,12 +97,7 @@ const login = async (req, res) => {
 
 const logout = (req, res) => {
   try {
-    res.cookie("authToken", "", {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
-      maxAge: 0,
-    });
+    clearAuthCookie(res);
 
     return res.status(200).json(new ApiResponse(200, "Logout successful"));
   } catch (error) {
@@ -217,7 +219,6 @@ const requestPasswordReset = async (req, res) => {
     try {
       await transporter.sendMail(mailOptions);
     } catch (emailError) {
-      console.log(emailError);
       return res
         .status(500)
         .json(
@@ -337,16 +338,15 @@ const passwordReset = async (req, res) => {
         );
     }
 
-    // Hash the new password securely
-    const hashedPassword = await bcrypt.hash(password, 10);
-
     // Update the user's password in the database
-    user.password = hashedPassword;
+    user.password = password;
     await user.save();
 
-    // Mark the token as used by setting isUsed to true
-    passwordResetEntry.isUsed = true;
-    await passwordResetEntry.save();
+    // Delete the password reset entry from the database
+    await PasswordReset.deleteOne({ resetToken: hashedToken });
+
+    // Clear the auth cookie (logout)
+    clearAuthCookie(res);
 
     // Send confirmation email
     const mailOptions = {
@@ -372,7 +372,7 @@ const passwordReset = async (req, res) => {
     // Return success response
     return res
       .status(200)
-      .json(new ApiResponse(200, "Password reset successful"));
+      .json(new ApiResponse(200, "Password reset successful and logged out."));
   } catch (error) {
     return res.status(500).json(new ApiError(500, error.message));
   }
