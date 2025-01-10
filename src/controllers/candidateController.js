@@ -6,6 +6,7 @@ const ApiError = require("../utils/ApiError.js");
 const ApiResponse = require("../utils/ApiResponse.js");
 const validateName = require("../utils/validateName.js");
 const isValidObjectId = require("../utils/validateObjectId.js");
+const client = require("../config/redis.js");
 
 const addCandidate = async (req, res) => {
   try {
@@ -29,6 +30,9 @@ const addCandidate = async (req, res) => {
 
     // Save the new user to the database
     const response = await newCandidate.save();
+
+    // Invalidate the candidate cache
+    await client.del("candidates");
     res
       .status(201)
       .json(new ApiResponse(201, "Candidate created successfully.", response));
@@ -78,6 +82,10 @@ const updateCandidate = async (req, res) => {
     if (!response) {
       return res.status(404).json(new ApiError(404, "Candidate not found"));
     }
+
+    // Invalidate the candidate cache
+    await client.del("candidates");
+
     res.status(200).json(new ApiResponse(200, response));
   } catch (err) {
     console.log(err);
@@ -157,21 +165,32 @@ const vote = async (req, res) => {
 
 const voteCount = async (req, res) => {
   try {
-    // Find all candidates and sort them by voteCount in descending order
-    const candidate = await Candidate.find().sort({ voteCount: "desc" });
+    const cachedVotes = await client.get("voteCount");
+    if (cachedVotes) {
+      return res
+        .status(200)
+        .json(
+          new ApiResponse(
+            200,
+            "Vote Record fetched successfully (from cache)",
+            JSON.parse(cachedVotes)
+          )
+        );
+    }
 
-    // Map the candidates to only return their name and voteCount
-    const voteRecord = candidate.map((data) => {
-      return {
-        party: data.party,
-        count: data.voteCount,
-      };
-    });
+    // Find all candidates and sort them by voteCount in descending order
+    const candidate = await Candidate.find()
+      .select("-_id party count")
+      .sort({ voteCount: "desc" });
+
+    //caching
+    await client.set("voteCount", JSON.stringify(candidate));
+    await client.expire("voteCount", 600);
 
     return res
       .status(200)
       .json(
-        new ApiResponse(200, "Vote Record fetched successfully", voteRecord)
+        new ApiResponse(200, "Vote Record fetched successfully", candidate)
       );
   } catch (err) {
     console.log(err);
@@ -181,7 +200,27 @@ const voteCount = async (req, res) => {
 
 const getCandidates = async (req, res) => {
   try {
+    const cachedCandidates = await client.get("candidates");
+    if (cachedCandidates) {
+      return res
+        .status(200)
+        .json(
+          new ApiResponse(
+            200,
+            "Candidates List fetched successfully (from cache)",
+            JSON.parse(cachedCandidates)
+          )
+        );
+    }
+
     const candidates = await Candidate.find({}, "name party -_id");
+    if (!candidates) {
+      return res.status(404).json(new ApiError(404, "No candidate found."));
+    }
+
+    //caching
+    await client.set("candidates", JSON.stringify(candidates));
+    await client.expire("candidates", 600);
 
     res
       .status(200)

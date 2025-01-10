@@ -10,9 +10,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@aws-sdk/client-dynamodb": "^3.716.0",
     "@aws-sdk/client-s3": "^3.717.0",
-    "@aws-sdk/lib-dynamodb": "^3.716.0",
     "aws-sdk": "^2.1692.0",
     "bcrypt": "^5.1.1",
     "body-parser": "^1.20.2",
@@ -30,6 +28,7 @@
     "nodemon": "^3.0.1",
     "passport": "^0.7.0",
     "passport-local": "^1.0.0",
+    "redis": "^4.7.0",
     "zod": "^3.23.8"
   }
 }

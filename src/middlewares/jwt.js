@@ -7,9 +7,7 @@ require("dotenv").config();
 const authMiddleware = (req, res, next) => {
   const token = req.cookies?.authToken;
   if (!token)
-    return res
-      .status(401)
-      .json(new ApiError(401, "Token not found in cookies"));
+    return res.status(401).json(new ApiError(401, "User not logged in."));
 
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);

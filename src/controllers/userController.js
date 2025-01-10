@@ -12,6 +12,10 @@ const PasswordReset = require("../models/passwordResetSchema.js");
 const bcrypt = require("bcrypt");
 const validatePassword = require("../utils/validatePassword.js");
 const clearAuthCookie = require("../utils/clearAuthCookie");
+const client = require("../config/redis.js");
+const { DeleteObjectCommand } = require("@aws-sdk/client-s3");
+const { s3 } = require("../middlewares/uploadMiddleware.js");
+const { sendNotifications } = require("../config/sendNotifications.js");
 
 const register = async (req, res) => {
   try {
@@ -22,6 +26,7 @@ const register = async (req, res) => {
         $or: [
           { aadharCardNumber: data.aadharCardNumber },
           { email: data.email },
+          { mobile: data.mobile },
         ],
       }),
       User.findOne({
@@ -36,7 +41,7 @@ const register = async (req, res) => {
         .json(
           new ApiError(
             400,
-            "User with the same Aadhar Card Number  or email already exists"
+            "User with the same Aadhar Card Number, Mobile number or email already exists."
           )
         );
     }
@@ -55,11 +60,100 @@ const register = async (req, res) => {
 
     const response = await newUser.save();
 
+    // Send Notifications (Email and SMS)
+    const sms = await sendNotifications(data.mobile, data.name);
+    console.log(sms);
+
     res
       .status(200)
       .json(new ApiResponse(201, "User Registered Successfully", response));
   } catch (error) {
     console.log(error);
+    res.status(500).json(new ApiError(500, error.message));
+  }
+};
+
+const updateUser = async (req, res) => {
+  try {
+    const userId = req.userId;
+    const data = req.body;
+
+    if (data.password || data.isVoted || data.aadharCardNumber) {
+      return res
+        .status(400)
+        .json(
+          new ApiError(
+            400,
+            "Password,isVoted and aadharCardNumber cannot be updated."
+          )
+        );
+    }
+
+    if (data.role && data.role == "admin") {
+      const existingAdmin = await User.findOne({ role: "admin" });
+      if (existingAdmin) {
+        return res.status(400).json(new ApiError(400, "Admin already exists."));
+      }
+    }
+
+    // Check if the user exists
+    const existingUser = await User.findById(userId);
+    if (!existingUser) {
+      return res.status(404).json(new ApiError(404, "User not found"));
+    }
+
+    // Check for conflicts with other users
+    if (data.email || data.mobile) {
+      const conflictingUser = await User.findOne({
+        $or: [{ email: data.email }, { mobile: data.mobile }],
+      });
+      if (conflictingUser) {
+        return res
+          .status(400)
+          .json(
+            new ApiError(
+              400,
+              "Another user with the same email already exists."
+            )
+          );
+      }
+    }
+
+    // Handle profile picture update
+    if (req.file) {
+      // Delete old profile picture from S3
+      if (existingUser.profilePictureUrl) {
+        const oldKey = existingUser.profilePictureUrl.split(".com/")[1]; // Extract the S3 key from the URL
+
+        try {
+          await s3.send(
+            new DeleteObjectCommand({
+              Bucket: process.env.AWS_S3_BUCKET_NAME,
+              Key: oldKey,
+            })
+          );
+        } catch (err) {
+          console.error("Error deleting old profile picture from S3:", err);
+          return res
+            .status(500)
+            .json(new ApiError(500, "Failed to delete old profile picture"));
+        }
+      }
+
+      // Set new profile picture URL
+      data.profilePictureUrl = req.file.location;
+    }
+
+    const updatedUser = await User.findByIdAndUpdate(userId, data, {
+      new: true,
+      runValidators: true,
+    });
+
+    res
+      .status(200)
+      .json(new ApiResponse(200, "User updated successfully", updatedUser));
+  } catch (error) {
+    console.error(error);
     res.status(500).json(new ApiError(500, error.message));
   }
 };
@@ -109,47 +203,34 @@ const logout = (req, res) => {
 const getUserProfile = async (req, res) => {
   try {
     const userId = req.userId;
+
+    const cachedUser = await client.get(`user:${userId}`);
+    if (cachedUser) {
+      return res
+        .status(200)
+        .json(
+          new ApiResponse(
+            200,
+            "User Fetched Successfully",
+            JSON.parse(cachedUser)
+          )
+        );
+    }
+
     const user = await User.findById(userId);
     if (!user) {
       return res.status(404).json(new ApiError(404, "User not found"));
     }
+
+    //caching
+    await client.set(`user:${userId}`, JSON.stringify(user));
+    await client.expire(`user:${userId}`, 600);
     res
       .status(200)
       .json(new ApiResponse(200, "User Fetched Successfully", user));
   } catch (err) {
     console.error(err);
     res.status(500).json(new ApiError(500, err.message));
-  }
-};
-
-const updatePassword = async (req, res) => {
-  try {
-    const userId = req.user.id; // Extract the id from the token
-    const { currentPassword, newPassword } = req.body; // Extract current and new passwords from request body
-
-    // Check if currentPassword and newPassword are present in the request body
-    if (!currentPassword || !newPassword) {
-      return res
-        .status(400)
-        .json({ error: "Both currentPassword and newPassword are required" });
-    }
-
-    // Find the user by userID
-    const user = await User.findById(userId);
-
-    // If user does not exist or password does not match, return error
-    if (!user || !(await user.comparePassword(currentPassword))) {
-      return res.status(401).json({ error: "Invalid current password" });
-    }
-
-    // Update the user's password
-    user.password = newPassword;
-    await user.save();
-
-    res.status(200).json({ message: "Password updated" });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Internal Server Error" });
   }
 };
 
@@ -383,7 +464,7 @@ module.exports = {
   login,
   logout,
   getUserProfile,
-  updatePassword,
   requestPasswordReset,
   passwordReset,
+  updateUser,
 };

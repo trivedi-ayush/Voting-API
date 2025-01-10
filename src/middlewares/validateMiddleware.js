@@ -2,7 +2,6 @@ const ApiError = require("../utils/ApiError.js");
 
 const validate = (schema) => async (req, res, next) => {
   try {
-    console.log("validate");
     const parseBody = await schema.parseAsync(req.body);
     req.body = parseBody;
     next();
